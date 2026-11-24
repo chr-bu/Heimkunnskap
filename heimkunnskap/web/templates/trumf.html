@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Groceries · Heimkunnskap{% endblock %}
+{% block content %}
+<h1>Groceries (Trumf), last {{ months }} months</h1>
+
+{% if not session %}
+<section class="card">
+  <p>No trumf.no login stored. Copy the Cookie header from trumf.no and store it on the server
+    with <code>manual trumf-session</code> (docs/deploy.md, Trumf). Purchases and receipts are then
+    fetched every morning.</p>
+</section>
+{% else %}
+<section class="card" id="login">
+  <p>{% if session.last_ok_at %}Last fetched {{ session.last_ok_at|when }}.{% else %}Not fetched yet.{% endif %}
+    {% if counts.purchases %}{{ counts.purchases }} purchases from {{ counts.first.strftime('%d.%m.%Y') }}
+    to {{ counts.last.strftime('%d.%m.%Y') }}; {{ counts.with_receipt - counts.missing }} of
+    {{ counts.with_receipt }} receipts read.{% endif %}</p>
+  {% if session.last_error %}<p class="warn">Last fetch failed: {{ session.last_error }}</p>{% endif %}
+</section>
+{% endif %}
+
+{% if monthly %}
+<section class="card" id="months">
+  <h2>Per month</h2>
+  <table>
+    <tr><th>Month</th><th class="num">Purchases</th><th class="num">Amount</th>
+        <th class="num">Trumf bonus</th><th class="num">Discounts</th></tr>
+    {% for m in monthly %}
+    <tr><td>{{ m.month.strftime('%m/%Y') }}</td><td class="num">{{ m.purchases }}</td>
+        <td class="num">{{ m.amount|kr0 }}</td><td class="num">{{ m.bonus|kr }}</td>
+        <td class="num">{{ m.savings|kr0 }}</td></tr>
+    {% endfor %}
+    <tr class="strong"><td>Total</td><td class="num">{{ monthly|sum(attribute='purchases') }}</td>
+      <td class="num">{{ monthly|sum(attribute='amount')|kr0 }}</td>
+      <td class="num">{{ monthly|sum(attribute='bonus')|kr }}</td>
+      <td class="num">{{ monthly|sum(attribute='savings')|kr0 }}</td></tr>
+  </table>
+  {% if used %}<p>Trumf bonus moved to EuroBonus in the period: {{ used|kr }} kr.</p>{% endif %}
+</section>
+
+<section class="card" id="chains">
+  <h2>Per chain</h2>
+  <table>
+    <tr><th>Chain</th><th class="num">Purchases</th><th class="num">Amount</th>
+        <th class="num">Average</th><th class="num">Trumf bonus</th></tr>
+    {% for c in chains if c.grocery %}
+    <tr><td>{{ c.partner }}</td><td class="num">{{ c.purchases }}</td><td class="num">{{ c.amount|kr0 }}</td>
+        <td class="num">{{ c.average|kr0 }}</td><td class="num">{{ c.bonus|kr }}</td></tr>
+    {% endfor %}
+  </table>
+  {% set others = chains|rejectattr('grocery')|list %}
+  {% if others %}
+  <p class="muted">Not counted here, not grocery stores:
+    {% for c in others %}{{ c.partner }} {{ c.amount|kr0 }} kr ({{ c.purchases }}){{ ", " if not loop.last }}{% endfor %}.
+    A grocery chain among them can be added to the table trumf_partner (sql/026_trumf_partners.sql).</p>
+  {% endif %}
+</section>
+
+<section class="card" id="products">
+  <h2>What the money goes to</h2>
+  {% if products %}
+  <table>
+    <tr><th>Product</th><th class="num">Purchases</th><th class="num">Quantity</th>
+        <th class="num">Amount</th><th class="num">Trumf bonus</th></tr>
+    {% for p in products %}
+    <tr><td>{{ p.product }}</td><td class="num">{{ p.purchases }}</td>
+        <td class="num">{{ p.quantity|kr0 if p.unit == 'EA' else p.quantity }} {{ '' if p.unit == 'EA' else (p.unit or '')|lower }}</td>
+        <td class="num">{{ p.amount|kr0 }}</td><td class="num">{{ p.bonus|kr }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>No receipt lines yet.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<p class="muted"><a href="?months=3">3</a> · <a href="?months=12">12</a> · <a href="?months=24">24</a> months</p>
+{% endblock %}

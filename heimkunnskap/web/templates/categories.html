@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Categories · Heimkunnskap{% endblock %}
+{% block content %}
+<h1>Spending by category, {{ year }}</h1>
+
+<section class="card" id="totals">
+  <table>
+    <tr><th>Category</th><th class="num">Spending</th><th class="num">Share</th><th class="num">Transactions</th></tr>
+    {% for t in totals %}
+    <tr><td>{{ t.category }}</td><td class="num">{{ t.spending|kr }}</td>
+        <td class="num">{{ ((t.spending or 0) / total * 100)|round|int if total else 0 }} %</td>
+        <td class="num">{{ t.n }}</td></tr>
+    {% endfor %}
+    <tr><th>Total</th><th class="num">{{ total|kr }}</th><th></th><th></th></tr>
+  </table>
+  <p class="muted"><a href="/categories?year={{ year - 1 }}">{{ year - 1 }}</a> ·
+    Spending as in the household totals: moves between own accounts, card bills, saving and
+    loans are not in it, and refunds and reimbursed expenses reduce it.</p>
+</section>
+
+{% if other %}
+<section class="card" id="other">
+  <h2>Largest payees in Other, {{ year }}</h2>
+  <p class="muted">Give a payee a category and every past and future payment to it follows.
+    The rule is the payee's name as a pattern; shorten it to catch variants
+    (<code>kiwi</code> matches every Kiwi store).</p>
+  <table>
+    <tr><th>Payee</th><th class="num">Payments</th><th class="num">Total</th><th>New rule</th></tr>
+    {% for o in other %}
+    <tr>
+      <td>{{ o.payee }}</td><td class="num">{{ o.n }}</td><td class="num">{{ o.spending|kr }}</td>
+      <td>
+        <form class="inline" method="post" action="/categories/rules">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="text" name="pattern" value="{{ o.pattern }}" aria-label="Pattern for {{ o.payee }}">
+          <input type="text" name="category" list="category-names" placeholder="Category"
+                 aria-label="Category for {{ o.payee }}">
+          <input type="hidden" name="priority" value="100">
+          <button type="submit">Add</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<section class="card" id="rules">
+  <h2>Rules</h2>
+  <p class="muted">Tried in order of priority, lowest first; the first match wins. A pattern is a
+    regular expression matched against the payee and the bank text in lower case:
+    <code>|</code> separates alternatives, <code>\b</code> marks a word boundary. A new category is
+    created by typing its name.</p>
+  <form class="inline" method="post" action="/categories/rules">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="text" name="pattern" placeholder="Pattern" aria-label="New pattern">
+    <input type="text" name="category" list="category-names" placeholder="Category" aria-label="New category">
+    <input type="number" name="priority" value="100" min="1" max="10000" aria-label="Priority">
+    <button type="submit">Add rule</button>
+  </form>
+  <table>
+    <tr><th class="num">Priority</th><th>Pattern and category</th><th class="num">Matches</th><th></th></tr>
+    {% for r in rules %}
+    <tr>
+      <td class="num">{{ r.priority }}</td>
+      <td>
+        <form class="inline" method="post" action="/categories/rules/{{ r.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="text" name="pattern" value="{{ r.pattern }}" aria-label="Pattern of rule {{ r.id }}">
+          <input type="text" name="category" value="{{ r.category }}" list="category-names"
+                 aria-label="Category of rule {{ r.id }}">
+          <input type="number" name="priority" value="{{ r.priority }}" min="1" max="10000"
+                 aria-label="Priority of rule {{ r.id }}">
+          <button type="submit">Save</button>
+        </form>
+      </td>
+      <td class="num">{{ r.matches }}</td>
+      <td>
+        <form method="post" action="/categories/rules/{{ r.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="action" value="delete">
+          <button class="link" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <datalist id="category-names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
+</section>
+{% endblock %}

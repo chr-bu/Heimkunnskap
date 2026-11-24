@@ -1,0 +1,121 @@
+# Heimkunnskap. Everything specific to the household lives in
+# .env (see .env.example) and in the secrets directory, never here.
+# Deployment: docs/deploy.md.
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${HEIM_DB_USER:-heimkunnskap}:${DB_PASS:?set in .env}@postgres:5432/${HEIM_DB:-heimkunnskap}
+  TIMEZONE: ${TIMEZONE:-Europe/Oslo}
+  EB_APP_ID: ${EB_APP_ID:?set in .env}
+  EB_KEY_FILE: /run/secrets/eb-key.pem
+  BANKS: ${BANKS:-DNB=DNB:NO,SAS=SAS EuroBonus Mastercard:NO}
+  BUSINESS_INCOME_ACCOUNTS: ${BUSINESS_INCOME_ACCOUNTS:-}
+  PUBLIC_URL: ${PUBLIC_URL:?set in .env}
+  CONSENT_WARN_DAYS: ${CONSENT_WARN_DAYS:-14}
+  PUSHOVER_FILE: /run/secrets/pushover
+
+x-secrets: &secrets
+  # Root-only files on the host (docs/deploy.md, "Secrets")
+  - ${SECRETS_DIR:-/srv/heimkunnskap/secrets}/eb-key.pem:/run/secrets/eb-key.pem:ro
+  - ${SECRETS_DIR:-/srv/heimkunnskap/secrets}/pushover:/run/secrets/pushover:ro
+
+services:
+  postgres:
+    # Pinned major version; never :latest
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set in .env}
+      # Used once, on the first start of an empty volume, to create the
+      # database and its three logins (sql/init/000_databases.sh)
+      HEIM_DB: ${HEIM_DB:-heimkunnskap}
+      HEIM_DB_USER: ${HEIM_DB_USER:-heimkunnskap}
+      DB_PASS: ${DB_PASS:?set in .env}
+      DB_PASS_RO: ${DB_PASS_RO:?set in .env}
+      DB_PASS_MCP: ${DB_PASS_MCP:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d ${HEIM_DB:-heimkunnskap}"]
+      interval: 10s
+      retries: 6
+
+  # Applies migrations and grants, then syncs every bank once a night
+  worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+      SYNC_AT: ${SYNC_AT:-02:30}
+      MCP_VIEWS: ${MCP_VIEWS:-accounts,monthly,balances,consents,imports,household_monthly,review,category_monthly,category_rules,lending,tax_estimate,payslips,expense_claims,business_expenses,vat_terms,eurobonus,points_monthly,points_purchases}
+      # Mail intake (heimkunnskap/mailin.py): off while MAIL_USER is empty
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_ALLOWED_SENDERS: ${MAIL_ALLOWED_SENDERS:-}
+      MAIL_POLL_SECONDS: ${MAIL_POLL_SECONDS:-300}
+      MAIL_PASSWORD_FILE: /run/secrets/gmail-app-password
+    volumes:
+      - ${SECRETS_DIR:-/srv/heimkunnskap/secrets}/eb-key.pem:/run/secrets/eb-key.pem:ro
+      - ${SECRETS_DIR:-/srv/heimkunnskap/secrets}/pushover:/run/secrets/pushover:ro
+      # The Gmail app password, one line; create it even while mail is off
+      - ${SECRETS_DIR:-/srv/heimkunnskap/secrets}/gmail-app-password:/run/secrets/gmail-app-password:ro
+
+  # BankID consents, the status page and the Claude connector (/mcp)
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      worker:
+        condition: service_started
+    command: ["python", "-m", "heimkunnskap.web"]
+    environment:
+      <<: *app-env
+      WEB_SECRET_KEY: ${WEB_SECRET_KEY:?set in .env}
+      WEB_ALLOWED_NETWORKS: ${WEB_ALLOWED_NETWORKS:?set in .env}
+      MCP_TOKEN: ${MCP_TOKEN:-}
+      DATABASE_URL_MCP: postgresql://${HEIM_DB_USER:-heimkunnskap}_mcp:${DB_PASS_MCP:?set in .env}@postgres:5432/${HEIM_DB:-heimkunnskap}
+    ports:
+      # Local only: Apache is the way in (deploy/apache/heimkunnskap.conf)
+      - "127.0.0.1:${WEB_PORT:-4200}:8000"
+    volumes: *secrets
+
+  # Dashboards at <PUBLIC_URL>/grafana/, behind the same Apache rule as the
+  # web app. Start with: docker compose --profile grafana up -d
+  grafana:
+    image: grafana/grafana-oss:13.0.2
+    profiles: ["grafana"]
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GF_SERVER_ROOT_URL: ${PUBLIC_URL:?set in .env}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      HEIM_DB: ${HEIM_DB:-heimkunnskap}
+      HEIM_DB_USER: ${HEIM_DB_USER:-heimkunnskap}
+      DB_PASS_RO: ${DB_PASS_RO:?set in .env}
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+volumes:
+  pgdata:
+  grafana-data:

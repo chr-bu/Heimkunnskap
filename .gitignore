@@ -1,0 +1,73 @@
+# Heimkunnskap .gitignore
+#
+# Rule: no real financial data and no secrets ever enter this repository.
+# Everything under the data directories is ignored by default.
+# Test fixtures must be synthetic (see README.md).
+
+# --- Data: raw store, uploads, exports, database files ---
+/data/
+/raw/
+/raw_store/
+/uploads/
+/inbox/
+/processed/
+/rejected/
+/backups/
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+*.pgdump
+
+# --- Real statements and pay slips, wherever they end up ---
+# Synthetic fixtures live under tests/fixtures/ and are re-included below.
+*.pdf
+*.xlsx
+*.xls
+*.csv
+!tests/fixtures/**/*.pdf
+!tests/fixtures/**/*.xlsx
+!tests/fixtures/**/*.xls
+!tests/fixtures/**/*.csv
+
+# --- Secrets and keys ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.gpg
+*.asc
+secrets/
+*.token
+*-token
+*_token
+
+# --- Docker ---
+docker-compose.override.yml
+compose.override.yml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# --- Editors and OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

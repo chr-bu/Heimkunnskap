@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Overview</h1>
+
+<section class="card" id="consents">
+  <h2>Bank consents</h2>
+  {% if consents %}
+  <table>
+    <tr><th>Bank</th><th>Whose BankID</th><th>Status</th><th class="num">Accounts</th>
+        <th>Valid until</th><th class="num">Days left</th><th>Last sync</th><th>Last error</th><th></th></tr>
+    {% for c in consents %}
+    <tr>
+      <td>{{ c.bank }}</td>
+      <td>
+        <form class="inline" method="post" action="/consents/{{ c.id }}/label">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="text" name="label" maxlength="40" aria-label="Whose BankID for consent {{ c.id }}"
+                 value="{{ c.label or '' }}" placeholder="Name">
+          <button type="submit">Save</button>
+        </form>
+      </td>
+      <td><span class="pill {{ 'ok' if c.status == 'active' else 'bad' }}">{{ c.status }}</span></td>
+      <td class="num">{{ c.accounts }}</td>
+      <td>{{ c.valid_until|when }}</td>
+      <td class="num {{ 'warn' if c.status == 'active' and c.days_left <= warn_days }}">{{ c.days_left }}</td>
+      <td>{{ c.last_sync_at|when }}</td>
+      <td class="muted">{{ c.last_error or "" }}</td>
+      <td>{% if c.status == 'active' %}<a href="{{ c.renew }}">Renew</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No consents yet. Start with BankID below.</p>
+  {% endif %}
+  <div class="banks">
+    {% for b in banks %}
+    <form class="connect" method="get" action="/eb/start">
+      <input type="hidden" name="bank" value="{{ b.short }}">
+      <input type="text" name="who" maxlength="40" placeholder="Whose BankID"
+             aria-label="Whose BankID for {{ b.name }}">
+      <button class="button" type="submit">Connect {{ b.name }} with BankID</button>
+    </form>
+    {% endfor %}
+  </div>
+  <p class="muted">Each person with accounts of their own gives a consent with their own BankID.
+    Renewing a consent replaces the old one; another person's consent stays. Every new consent
+    fetches the full history straight away, which the bank allows only within about an hour of
+    BankID. Use this page from home or over WireGuard.</p>
+</section>
+
+<section class="card" id="accounts">
+  <h2>Accounts</h2>
+  {% if accounts %}
+  <table>
+    <tr><th>Account</th><th>Number</th><th>Product</th><th class="num">Balance</th>
+        <th>Last booking</th><th class="num">Transactions</th><th>Label</th></tr>
+    {% for a in accounts %}
+    <tr>
+      <td>{{ a.account }}{% if a.is_business_income %} <span class="pill warn">business income</span>{% endif %}
+        {% if not a.active %} <span class="pill bad">inactive</span>{% endif %}</td>
+      <td>{{ a.number_masked }}</td>
+      <td class="muted">{{ a.product or "" }}</td>
+      <td class="num">{{ a.balance|kr }}</td>
+      <td>{{ a.last_booking_date or "" }}</td>
+      <td class="num">{{ a.transactions }}</td>
+      <td>
+        <form class="inline" method="post" action="/accounts/{{ a.id }}/label">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="text" name="label" maxlength="60" aria-label="Label for {{ a.account }}"
+                 value="{{ a.label or '' }}" placeholder="Own name">
+          <button type="submit">Save</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No accounts yet.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="imports">
+  <h2>Imports {% if running %}<span class="pill warn">full import running</span>{% endif %}</h2>
+  {% if imports %}
+  <table>
+    <tr><th>Started</th><th>Kind</th><th>Account</th><th>From</th><th class="num">Pages</th>
+        <th class="num">Booked</th><th class="num">New</th><th>Result</th></tr>
+    {% for i in imports %}
+    <tr>
+      <td>{{ i.started_at|when }}</td>
+      <td>{{ i.kind }}</td>
+      <td>{{ i.account or "" }}</td>
+      <td>{{ i.date_from or "" }}</td>
+      <td class="num">{{ i.pages }}</td>
+      <td class="num">{{ i.seen }}</td>
+      <td class="num">{{ i.added }}</td>
+      <td>{% if i.error %}<span class="bad">{{ i.error }}</span>
+          {% elif not i.finished_at %}<span class="warn">running</span>
+          {% else %}<span class="ok">done</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Nothing imported yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

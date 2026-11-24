@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Points · Heimkunnskap{% endblock %}
+{% block content %}
+<h1>EuroBonus, {{ year }}</h1>
+
+{% if not newest %}
+<section class="card">
+  <p>No EuroBonus history yet. On sas.no, open My EuroBonus, Transactions, and export to Excel;
+    then upload the file on the <a href="/upload">upload page</a> or email it to the intake address.
+    Each export repeats the whole history: only new rows are added.</p>
+</section>
+{% else %}
+<section class="card" id="sources">
+  <h2>Points earned</h2>
+  <table>
+    <tr><th>Source</th><th class="num">Points</th><th class="num">Level points</th></tr>
+    {% for s in sources %}
+    <tr><td>{{ s.source }}</td><td class="num">{{ s.earned|kr0 }}</td>
+        <td class="num">{{ s.level|kr0 }}</td></tr>
+    {% endfor %}
+    <tr class="strong"><td>Total</td><td class="num">{{ sources|sum(attribute='earned')|kr0 }}</td>
+      <td class="num">{{ level_year|kr0 }}</td></tr>
+  </table>
+  <p>Level points: <strong>{{ level_year|kr0 }}</strong> in {{ year }},
+    <strong>{{ level12|kr0 }}</strong> in the last 12 months.</p>
+  <p class="muted">History up to {{ newest.strftime('%d.%m.%Y') }}, from the latest export.
+    Points refunded for a changed or cancelled award booking are not counted as earned.</p>
+</section>
+
+<section class="card" id="spent">
+  <h2>Points spent</h2>
+  <p>Award travel kept: <strong>{{ spending.kept|kr0 }}</strong> points on {{ spending.kept_n }}
+    booking{{ '' if spending.kept_n == 1 else 's' }}.
+    {% if spending.shop %}EuroBonus shop: {{ spending.shop|kr0 }}.{% endif %}
+    {% if spending.other %}Other: {{ spending.other|kr0 }}.{% endif %}</p>
+  {% if awards %}
+  <table>
+    <tr><th>Booked</th><th>Trip</th><th class="num">Points</th></tr>
+    {% for a in awards %}
+    <tr><td>{{ a.day.strftime('%d.%m.%Y') }}</td><td>{{ a.partner }}</td><td class="num">{{ a.points|kr0 }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if spending.changed_n %}
+  <p class="muted">Left out: {{ spending.changed_n }} booking{{ '' if spending.changed_n == 1 else 's' }}
+    of {{ spending.changed|kr0 }} points later changed or cancelled, and the same points refunded
+    (a refund from SAS of exactly a booking's points). A booking made late in a year and refunded the
+    next counts as changed in the year it was booked.</p>
+  {% endif %}
+</section>
+
+{% for c in cards %}{% if by_card[c.code] %}
+<section class="card" id="card-{{ c.code }}">
+  <h2>{{ c.label }}</h2>
+  <table>
+    <tr><th>Posting month</th><th class="num">Earning spend</th><th class="num">Expected</th>
+        <th class="num">Received</th><th class="num">Difference</th><th class="num">Missed</th></tr>
+    {% for m in by_card[c.code] %}
+    <tr><td>{{ m.period.strftime('%m/%Y') }}</td><td class="num">{{ m.earning_spend|kr0 }}</td>
+        <td class="num">{{ m.expected|kr0 }}</td><td class="num">{{ m.received|kr0 }}</td>
+        <td class="num">{{ m.difference|kr0 }}</td><td class="num">{{ m.missed|kr0 }}</td></tr>
+    {% endfor %}
+    {% set t = totals[c.code] %}
+    <tr class="strong"><td>{{ year }}</td><td class="num">{{ t.earning_spend|kr0 }}</td>
+      <td class="num">{{ t.expected|kr0 }}</td><td class="num">{{ t.received|kr0 }}</td>
+      <td class="num">{{ t.difference|kr0 }}</td><td class="num">{{ t.missed|kr0 }}</td></tr>
+  </table>
+</section>
+{% endif %}{% endfor %}
+<p class="muted">Expected: each purchase times the card's earn rule, in the month that should pay for
+  it. Missed: what the best of your cards would have earned more (American Express counted only at
+  merchants where it has been used). Difference: received less expected; the month of the first
+  postings and the one still open are rarely exact.</p>
+
+<section class="card" id="missed">
+  <h2>Points missed, {{ year }}</h2>
+  {% if missed %}
+  <table>
+    <tr><th>Merchant</th><th>Paid with</th><th>Best</th><th class="num">Purchases</th>
+        <th class="num">Amount</th><th class="num">Points missed</th></tr>
+    {% for m in missed %}
+    <tr><td>{{ m.merchant }}</td><td>{{ m.card }}</td><td>{{ m.best_card }}</td>
+        <td class="num">{{ m.purchases }}</td><td class="num">{{ m.amount|kr0 }}</td>
+        <td class="num">{{ m.missed|kr0 }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">None.</p>{% endif %}
+</section>
+
+<section class="card" id="nothing">
+  <h2>Earning nothing</h2>
+  {% if excluded %}
+  <table>
+    <tr><th>Why</th><th class="num">Purchases</th><th class="num">Amount</th></tr>
+    {% for e in excluded %}
+    <tr><td>{{ e.excluded }}</td><td class="num">{{ e.purchases }}</td><td class="num">{{ e.amount|kr0 }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">None.</p>{% endif %}
+  <p class="muted">Earn rules (points per 100 kr):
+    {% for r in rules %}{{ labels[r.card] }} {{ r.rate_nok|round|int }}/{{ r.rate_foreign|round|int }} abroad{% if r.yearly_cap_minor %}, up to {{ (r.yearly_cap_minor / 100)|kr0 }} kr a year{% endif %}{% if r.valid_to %} until {{ r.valid_to }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}.
+    Change them with <code>manual earn-rule</code>, exclusions with <code>manual points-exclude</code>.</p>
+</section>
+{% endif %}
+<p class="muted"><a href="/points?year={{ year - 1 }}">{{ year - 1 }}</a></p>
+{% endblock %}

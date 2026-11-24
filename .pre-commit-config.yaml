@@ -1,0 +1,24 @@
+# Secret and data-leak checks that run before every commit.
+#
+# One-time setup on each machine that commits to this repo:
+#   pre-commit install
+#   pre-commit autoupdate   # bumps the pinned versions below to current releases
+#
+# Run against the whole repo at any time:
+#   pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

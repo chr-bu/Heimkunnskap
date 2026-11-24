@@ -1,0 +1,20 @@
+# Grafana reads through the read-only login, which sees the report schema
+# and nothing else (heimkunnskap/migrate.py). Values come from the container
+# environment (docker-compose.yml, set in .env).
+apiVersion: 1
+datasources:
+  - name: Heimkunnskap
+    uid: heimkunnskap
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: ${HEIM_DB_USER}_ro
+    isDefault: true
+    editable: false
+    jsonData:
+      database: ${HEIM_DB}
+      sslmode: disable          # internal Docker network only; Postgres publishes no port
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: ${DB_PASS_RO}

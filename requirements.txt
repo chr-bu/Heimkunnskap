@@ -1,0 +1,15 @@
+# Python 3.12; see docs/mcp-pattern.md for the MCP server
+asyncpg>=0.29
+starlette>=0.49.1,<2
+uvicorn>=0.30
+jinja2>=3.1.6
+itsdangerous>=2.1
+# Enable Banking signs every request with an RS256 JWT
+PyJWT[crypto]>=2.8
+# floor for a package pulled in by uvicorn: version with known fixes
+h11>=0.16
+tzdata>=2024.1
+openpyxl>=3.1.5
+python-multipart>=0.0.18
+# Pay slips are PDFs with a text layer
+pypdf>=5.1

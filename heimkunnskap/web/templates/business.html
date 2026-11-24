@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Business · Heimkunnskap{% endblock %}
+{% block content %}
+<h1>Business, {{ year }}</h1>
+
+<section class="card" id="vat">
+  <h2>VAT per term</h2>
+  {% if not terms %}
+  <p>No VAT registration date set: <code>manual set vat_registered_from YYYY-MM-DD</code>.</p>
+  {% else %}
+  <table>
+    <tr><th>Term</th><th>Due</th><th class="num">Output VAT</th><th class="num">Input VAT</th>
+        <th class="num">Paid</th><th class="num">Outstanding</th><th>Status</th></tr>
+    {% for t in terms|reverse %}
+    <tr{% if t.status in ('due', 'overdue') %} class="strong"{% endif %}>
+      <td>{{ t.name }}</td><td>{{ t.due.strftime('%d.%m.%Y') }}</td>
+      <td class="num">{{ t.output_vat|kr0 }}</td><td class="num">{{ t.input_vat|kr0 }}</td>
+      <td class="num">{{ t.paid|kr0 }}</td><td class="num">{{ t.outstanding|kr0 }}</td>
+      <td>{{ t.status }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">Registered from {{ registered }}. Output VAT is 20% of each deposit into the
+    business account (25% on top of the price) unless set by hand
+    (<code>manual vat ID KR --term YYYY-MM</code>); input VAT comes from the expenses below.
+    Payments to Innkrevingsmyndigheten and refunds count against the term before them. A reminder
+    comes by Pushover when a term with VAT to pay ends, three days before it is due, and the day
+    after if still unpaid.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="expenses">
+  <h2>Expenses</h2>
+  {% if expenses %}
+  <table>
+    <tr><th>Date</th><th>Payee</th><th class="num">Amount</th><th class="num">Share</th>
+        <th class="num">Input VAT</th><th class="num">Cost excl. VAT</th><th>By</th><th></th></tr>
+    {% for e in expenses %}
+    <tr>
+      <td>{{ e.booking_date.strftime('%d.%m') }}</td>
+      <td>{{ e.description[:50] }}{% if e.note %} <span class="muted">({{ e.note }})</span>{% endif %}</td>
+      <td class="num">{{ e.cost|kr }}</td>
+      <td class="num">{{ (e.share * 100)|round|int }} %</td>
+      <td class="num">{{ e.input_vat|kr }}</td><td class="num">{{ e.cost_excl_vat|kr }}</td>
+      <td>{{ 'rule' if e.source == 'rule' else 'hand' }}</td>
+      <td>{% if e.source == 'manual' %}
+        <form class="inline" method="post" action="/business">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="action" value="untag"><input type="hidden" name="txn" value="{{ e.id }}">
+          <input type="hidden" name="back" value="/business?year={{ year }}#expenses">
+          <button type="submit">Untag</button>
+        </form>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    <tr class="strong"><td></td><td>Total</td><td class="num">{{ totals.cost|kr }}</td><td></td>
+      <td class="num">{{ totals.vat|kr }}</td><td class="num">{{ totals.excl|kr }}</td><td></td><td></td></tr>
+  </table>
+  <p class="muted">The cost excl. VAT lowers the business profit in the
+    <a href="/tax">tax estimate</a>. Expenses that are wholly the business's are in the category
+    Business, out of the household's spending.</p>
+  {% else %}
+  <p class="muted">None tagged in {{ year }}. Find the payments below.</p>
+  {% endif %}
+  <p class="muted"><a href="/business?year={{ year - 1 }}">{{ year - 1 }}</a></p>
+</section>
+
+<section class="card" id="find">
+  <h2>Tag a payment</h2>
+  <form class="inline" method="get" action="/business#find">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="text" name="q" value="{{ q }}" placeholder="Payee or text" aria-label="Search">
+    <button type="submit">Find</button>
+  </form>
+  {% if q %}
+  {% if found %}
+  <table>
+    <tr><th>Date</th><th>Payee</th><th class="num">Amount</th><th>Tag</th></tr>
+    {% for t in found %}
+    <tr>
+      <td>{{ t.booking_date.strftime('%d.%m.%Y') }}</td>
+      <td>{{ t.payee[:50] }} <span class="muted">{{ t.account }}</span></td>
+      <td class="num">{{ t.amount|kr }}</td>
+      <td>{% if t.tagged %}<span class="muted">tagged</span>{% else %}
+        <form class="inline" method="post" action="/business">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="action" value="tag"><input type="hidden" name="txn" value="{{ t.id }}">
+          <input type="hidden" name="back" value="/business?year={{ year }}&q={{ q|urlencode }}#find">
+          <input type="number" name="share" value="100" min="1" max="100" aria-label="Share in percent"
+                 title="The business's share, in percent">%
+          <select name="vat_rate" aria-label="VAT rate">
+            {% for r in rates %}<option value="{{ r }}">{{ r }} % VAT</option>{% endfor %}
+          </select>
+          <input type="text" name="vat" placeholder="or VAT kr" size="7" aria-label="Input VAT in kroner">
+          <input type="text" name="note" placeholder="Note" size="12" aria-label="Note">
+          <button type="submit">Tag</button>
+        </form>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No payments match.</p>{% endif %}
+  {% endif %}
+</section>
+
+<section class="card" id="rules">
+  <h2>Rules</h2>
+  <p class="muted">Tag every payment whose payee or text matches, past and future: a regular
+    expression on the lower-cased payee and text, as for categories. A tag set by hand wins.</p>
+  {% if rules %}
+  <table>
+    <tr><th>Pattern</th><th class="num">Share</th><th class="num">VAT rate</th><th class="num">Payments</th><th>Note</th><th></th></tr>
+    {% for r in rules %}
+    <tr><td><code>{{ r.pattern }}</code></td><td class="num">{{ (r.share * 100)|round|int }} %</td>
+      <td class="num">{{ r.vat_rate|round|int }} %</td><td class="num">{{ r.n }}</td><td>{{ r.note }}</td>
+      <td><form class="inline" method="post" action="/business">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="delete-rule"><input type="hidden" name="rule" value="{{ r.id }}">
+        <input type="hidden" name="back" value="/business#rules">
+        <button type="submit">Delete</button></form></td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <form class="inline" method="post" action="/business">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="rule"><input type="hidden" name="back" value="/business#rules">
+    <input type="text" name="pattern" placeholder="Pattern, e.g. adobe" aria-label="Pattern">
+    <input type="number" name="share" value="100" min="1" max="100" aria-label="Share in percent">%
+    <select name="vat_rate" aria-label="VAT rate">
+      {% for r in rates %}<option value="{{ r }}">{{ r }} % VAT</option>{% endfor %}
+    </select>
+    <input type="text" name="note" placeholder="Note" aria-label="Note">
+    <button type="submit">Add rule</button>
+  </form>
+</section>
+{% endblock %}

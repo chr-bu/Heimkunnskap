@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}To {{ bank }} · Heimkunnskap{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="0; url={{ url }}">{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>On to {{ bank }}{% if who %} for {{ who }}{% endif %}</h1>
+  <p>Sign in with BankID at the bank. You come back here afterwards.</p>
+  <p><a class="button" href="{{ url }}" rel="noreferrer">Continue to BankID</a></p>
+</section>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Tax · Heimkunnskap{% endblock %}
+{% block content %}
+<h1>Income tax {{ year }}</h1>
+
+{% if result.error %}
+<section class="card"><p>{{ result.error }}.</p></section>
+{% elif not result.people %}
+<section class="card">
+  <p>No pay slips yet. Upload one recent pay slip per person on the
+    <a href="/upload">upload page</a>: the estimate starts from its year-to-date figures.</p>
+</section>
+{% else %}
+<section class="card" id="estimate">
+  <p class="muted">Estimated {{ result.as_of }}. Salary and withholding are projected to the end
+    of the year from the newest pay slip, with half tax in December. Kroner.</p>
+  <table>
+    <tr><th></th>{% for p in result.people %}<th class="num">{{ p.person }}</th>{% endfor %}
+      {% if household %}<th class="num household">Household</th>{% endif %}</tr>
+    {% for label, key in rows %}
+    <tr{% if key in ('total_tax', 'general_income') %} class="strong"{% endif %}>
+      <td>{{ label }}</td>
+      {% for p in result.people %}<td class="num">{{ p[key]|kr0 }}</td>{% endfor %}
+      {% if household %}<td class="num household">{{ household[key]|kr0 }}</td>{% endif %}
+    </tr>
+    {% endfor %}
+    <tr class="strong"><td>Refund, or tax to pay (−)</td>
+      {% for p in result.people %}<td class="num">{{ p.balance|kr0 }}</td>{% endfor %}
+      {% if household %}<td class="num household">{{ household.balance|kr0 }}</td>{% endif %}</tr>
+    <tr><td>Marginal rate on salary</td>
+      {% for p in result.people %}<td class="num">{{ (p.marginal_rate_salary * 100)|round(1) }} %</td>{% endfor %}
+      {% if household %}<td></td>{% endif %}</tr>
+  </table>
+  {% if household %}
+  <p>Household: {% if household.balance >= 0 %}a refund of about {{ household.balance|kr0 }} kr
+    {% else %}about {{ (-household.balance)|kr0 }} kr to pay{% endif %}. Each person settles
+    their own tax; the column only adds the two up.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="notes">
+  <h2>What the estimate assumes</h2>
+  {% for p in result.people %}
+  <h3>{{ p.person }}</h3>
+  <ul>{% for n in p.notes %}<li>{{ n }}</li>{% endfor %}</ul>
+  {% endfor %}
+  <p class="muted">Not covered: wealth tax, student loan interest, credit interest, gains on
+    funds and shares sold. Business expenses count once tagged on the
+    <a href="/business">Business</a> page. Dividends are counted without the shielding
+    deduction. Rates are those adopted for {{ year }}.</p>
+</section>
+{% endif %}
+
+<section class="card" id="slips">
+  <h2>Pay slips, {{ year }}</h2>
+  {% if slips %}
+  <table>
+    <tr><th>Month</th><th>Person</th><th>Employer</th><th>Table</th><th class="num">Gross so far</th>
+        <th class="num">Withheld so far</th><th class="num">Paid out</th></tr>
+    {% for s in slips %}
+    <tr><td>{{ s.period.strftime('%m/%Y') }}</td><td>{{ s.person }}</td><td>{{ s.employer }}</td>
+        <td>{{ s.tax_table or '' }}{% if s.tax_percent %} / {{ s.tax_percent }} %{% endif %}</td>
+        <td class="num">{{ s.gross_ytd|kr }}</td><td class="num">{{ s.withheld_ytd|kr }}</td>
+        <td class="num">{{ s.net_paid|kr }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">None uploaded for {{ year }}.</p>{% endif %}
+  <p class="muted">Settings, from the command line in <code>/srv/heimkunnskap</code>:
+    VAT registration date <strong>{{ settings.vat_registered_from or 'not set' }}</strong>
+    (<code>manual set vat_registered_from YYYY-MM-DD</code>); loan interest deducted for
+    <strong>{{ settings.loan_interest_person or 'the business owner' }}</strong>,
+    their share <strong>{{ settings.loan_interest_share or '1 (all of it)' }}</strong>
+    (<code>manual set loan_interest_person "Name"</code>,
+    <code>manual set loan_interest_share 0.5</code>); VAT in one deposit
+    (<code>manual vat ID KR</code>).</p>
+  <p class="muted"><a href="/tax?year={{ year - 1 }}">{{ year - 1 }}</a></p>
+</section>
+{% endblock %}

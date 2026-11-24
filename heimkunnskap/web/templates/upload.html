@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Uploads · Heimkunnskap{% endblock %}
+{% block content %}
+<h1>Card files, pay slips and expense claims</h1>
+
+{% if results %}
+<section class="card" id="results">
+  <h2>Just uploaded</h2>
+  <table>
+    <tr><th>File</th><th>Result</th></tr>
+    {% for r in results %}
+    <tr>
+      <td>{{ r.filename }}</td>
+      <td>
+        {% if r.status == "imported" %}
+          <span class="ok">{{ r.account }}, {{ r.period }}: {{ r.rows }} rows, {{ r.added }} new.</span>
+          {% for c in r.checks %}<span class="muted">{{ c|capitalize }}.</span> {% endfor %}
+        {% elif r.status == "duplicate" %}
+          <span class="muted">Already uploaded {{ r.uploaded_at|when }}. Nothing added.</span>
+        {% else %}
+          <span class="bad">Not imported: {{ r.reason }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Upload</h2>
+  <form class="upload" method="post" action="/upload" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="file" name="files" multiple accept=".xlsx,.pdf" aria-label="Card exports, pay slips and expense claims">
+    <button class="button" type="submit">Upload</button>
+  </form>
+  <p class="muted">The Excel exports from americanexpress.com (account activity), from the
+    DNB Mastercard's transaction list in the online bank, and from the SAS EuroBonus
+    Mastercard's transaction export at SEB Kort, up to {{ max_files }} at a time. Pay slips (PDF,
+    from DFØ or payroll layout B) go here too, for the tax estimate, and expense claims (PDF, from the
+    employer's travel system), which mark what was reimbursed. All of these can also be
+    emailed to the intake mailbox. Each file is
+    recognised by its contents, not its name. Uploading a period again, or one that has grown
+    since, adds only the rows that are new. The SAS card also comes from the bank, so its files
+    add only what is older than the bank's own history.</p>
+</section>
+
+<section class="card">
+  <h2>What the ledger holds</h2>
+  {% if cards %}
+  <table>
+    <tr><th>Card</th><th>From</th><th>To</th><th class="num">Transactions</th></tr>
+    {% for c in cards %}
+    <tr><td>{{ c.account }}</td><td>{{ c.first_date or "" }}</td>
+        <td>{{ c.last_booking_date or "" }}</td><td class="num">{{ c.transactions }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No card files yet.</p>
+  {% endif %}
+</section>
+
+{% if uploads %}
+<section class="card">
+  <h2>Earlier uploads</h2>
+  <table>
+    <tr><th>When</th><th>File</th><th class="num">Rows</th><th class="num">New</th><th>Result</th></tr>
+    {% for u in uploads %}
+    <tr><td>{{ u.started_at|when }}</td><td>{{ u.filename }}</td>
+        <td class="num">{{ u.seen }}</td><td class="num">{{ u.added }}</td>
+        <td>{% if u.error %}<span class="bad">{{ u.error }}</span>{% else %}<span class="ok">done</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+{% endblock %}
