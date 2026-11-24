@@ -270,6 +270,14 @@ An investment or other saving, a loan payment, or a reimbursement the rules miss
 sudo docker compose exec worker python -m heimkunnskap.manual mark 1233 saving
 ```
 
+The other way round, a payment the rules take for saving or a transfer that is really ordinary spending or income, such as a monthly fund purchase into an account owned by someone outside the household (an adult child's fund): mark it `ordinary`. A category rule then sorts it like any other spending. Several ids can be given at once:
+
+```sh
+sudo docker compose exec worker python -m heimkunnskap.manual mark 1301 1302 1303 ordinary
+```
+
+`unmark ID` hands a payment back to the rules; `list` shows every mark.
+
 **A payment to the rammelån that the bank split.** The rules take a direct payment to the credit line for all principal. When the month's interest was taken out of the payment instead of being debited around the 20th, the loan's statement in the DNB app (Siste transaksjoner) shows the split. Give it per payment; the three amounts must add up to the payment:
 
 ```sh

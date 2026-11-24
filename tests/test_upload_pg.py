@@ -830,3 +830,45 @@ def test_one_trumf_fetch_at_a_time(web):
         assert site.paths == []
     finally:
         holder.wait()
+
+
+def test_ordinary_mark_overrides_the_saving_rule(web):
+    """A monthly fund purchase into an account owned outside the household
+    (an adult child's fund) is money given away: spending, not saving."""
+    from heimkunnskap import categories, manual
+    conn = PsqlConn(PG)
+    acct = run(conn.fetchval("INSERT INTO account (account_key, source, aspsp_name, cash_account_type) "
+                             "VALUES ('h-o', 'enable_banking', 'DNB', 'CACC') RETURNING id"))
+    batch = run(conn.fetchval("INSERT INTO import_batch (source, kind) VALUES ('t', 't') RETURNING id"))
+    ids = [run(conn.fetchval(
+        "INSERT INTO txn (account_id, booking_date, amount_minor, currency, description, "
+        "fingerprint, batch_id) VALUES ($1, $2, -30000, 'NOK', $3, $4, $5) RETURNING id",
+        acct, day, "Giro, Eksempel Global Indeks A, Fast Oppdrag", f"o{i}", batch))
+        for i, day in enumerate([date(2024, 1, 20), date(2024, 2, 20)])]
+    children = run(conn.fetchval("SELECT id FROM category WHERE name = 'Children'"))
+    if children is None:
+        children = run(conn.fetchval(
+            "INSERT INTO category (name, sort_order) VALUES ('Children', 50) RETURNING id"))
+    run(conn.execute("INSERT INTO category_rule (category_id, pattern, priority) "
+                     "VALUES ($1, 'global indeks a, fast oppdrag', 1)", children))
+    run(pairing.run(conn))
+    jan = "SELECT spending, saving FROM report.household_monthly WHERE month = '2024-01-01'"
+    assert run(conn.fetchrow(jan)) == {"spending": 0, "saving": 300}      # the rule: saving
+
+    printed = run(manual.mark(conn, ids, "ordinary"))
+    assert printed.count(": ordinary") == 2
+    run(pairing.run(conn))                                                  # a re-run keeps it
+    assert run(conn.fetchrow(jan)) == {"spending": 300, "saving": 0}
+    cats = [run(conn.fetchrow("SELECT category, kind FROM report.transactions WHERE id = $1", i))
+            for i in ids]
+    assert cats == [{"category": "Children", "kind": None}] * 2
+    assert "ordinary" in run(manual.listing(conn))
+    with pytest.raises(SystemExit):
+        run(manual.mark(conn, [ids[0], 999999], "ordinary"))                # no partial marks
+    # only a hand mark may be without a kind
+    with pytest.raises(Exception):
+        run(conn.execute("UPDATE txn_class SET manual = false WHERE txn_id = $1", ids[0]))
+
+    assert run(manual.unmark(conn, ids[0])) == "undone"
+    assert run(conn.fetchval("SELECT kind FROM txn_class WHERE txn_id = $1", ids[0])) == "saving"
+    assert categories.check_pattern("global indeks a, fast oppdrag") is None

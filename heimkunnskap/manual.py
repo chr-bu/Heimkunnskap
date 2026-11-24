@@ -66,7 +66,8 @@ from datetime import date, timedelta
 
 from . import categories, db, pairing, trumf
 
-KINDS = ("saving", "loan", "reimbursement")
+# ordinary: income or spending whatever the rules say (stored without a kind)
+KINDS = ("saving", "loan", "reimbursement", "ordinary")
 
 
 def _kr(value) -> str:
@@ -139,20 +140,27 @@ async def lend(conn, txn_id: int, repaid_by: str, note: str | None,
             + _table(repaid, ["id", "booking_date", "amount", "repaid", "interest"]))
 
 
-async def mark(conn, txn_id: int, kind: str) -> str:
-    t = await _txn(conn, txn_id)
-    if await conn.fetchval("SELECT 1 FROM lending WHERE txn_id = $1", txn_id):
-        raise SystemExit("that transaction is a loan made: unmark it first")
-    principal = t["amount_minor"] if kind == "loan" else None
+async def mark(conn, txn_ids: int | list[int], kind: str) -> str:
+    """Mark one or more payments by hand. All ids are checked before any
+    is changed; the classification is recomputed once at the end."""
+    ids = [txn_ids] if isinstance(txn_ids, int) else list(dict.fromkeys(txn_ids))
+    found = [await _txn(conn, i) for i in ids]
+    for t in found:
+        if await conn.fetchval("SELECT 1 FROM lending WHERE txn_id = $1", t["id"]):
+            raise SystemExit(f"transaction {t['id']} is a loan made: unmark it first")
+    stored = None if kind == "ordinary" else kind
     async with conn.transaction():
-        await conn.execute("DELETE FROM txn_class WHERE txn_id = $1", txn_id)
-        await conn.execute(
-            """INSERT INTO txn_class (txn_id, kind, rule, manual, principal_minor,
-                                      interest_minor, fees_minor)
-               VALUES ($1, $2, $3, true, $4, $5, $5)""",
-            txn_id, kind, f"manual:{kind}", principal, 0 if kind == "loan" else None)
+        for t in found:
+            principal = t["amount_minor"] if kind == "loan" else None
+            await conn.execute("DELETE FROM txn_class WHERE txn_id = $1", t["id"])
+            await conn.execute(
+                """INSERT INTO txn_class (txn_id, kind, rule, manual, principal_minor,
+                                          interest_minor, fees_minor)
+                   VALUES ($1, $2, $3, true, $4, $5, $5)""",
+                t["id"], stored, f"manual:{kind}", principal, 0 if kind == "loan" else None)
     await pairing.run(conn)
-    return f"{t['booking_date']} {_kr(t['amount_minor'] / 100)} {t['description']}: {kind}"
+    return "\n".join(f"{t['booking_date']} {_kr(t['amount_minor'] / 100)} {t['description']}: {kind}"
+                     for t in found)
 
 
 async def unmark(conn, txn_id: int) -> str:
@@ -631,8 +639,8 @@ async def trumf_report(conn, fetch: bool) -> str:
 async def listing(conn) -> str:
     loans = await conn.fetch("SELECT * FROM report.lending ORDER BY lent_on")
     marks = await conn.fetch(
-        """SELECT t.id, t.booking_date, round(t.amount_minor / 100.0, 2) AS amount, c.kind,
-                  left(t.description, 60) AS description
+        """SELECT t.id, t.booking_date, round(t.amount_minor / 100.0, 2) AS amount,
+                  coalesce(c.kind, 'ordinary') AS kind, left(t.description, 60) AS description
            FROM txn_class c JOIN txn t ON t.id = c.txn_id
            WHERE c.manual ORDER BY t.booking_date, t.id""")
     gaps = await credit_line_gaps(conn)
@@ -662,7 +670,7 @@ async def main_async(args) -> str:
         if args.command == "check":
             return await check(conn)
         if args.command == "mark":
-            return await mark(conn, args.id, args.kind)
+            return await mark(conn, args.ids, args.kind)
         if args.command == "vat":
             return await set_vat(conn, args.id, args.kr, args.note, args.term)
         if args.command == "points":
@@ -717,8 +725,9 @@ def main(argv: list[str] | None = None) -> None:
                         "principal is repaid are interest. Without it the loan ends when "
                         "the principal is repaid")
     l.add_argument("--note")
-    m = sub.add_parser("mark", help="payment ID is saving, loan or reimbursement")
-    m.add_argument("id", type=int)
+    m = sub.add_parser("mark", help="payments ID... are saving, loan, reimbursement, or "
+                                    "ordinary income or spending whatever the rules say")
+    m.add_argument("ids", type=int, nargs="+", metavar="ID")
     m.add_argument("kind", choices=KINDS)
     u = sub.add_parser("unmark", help="undo lend or mark")
     u.add_argument("id", type=int)
