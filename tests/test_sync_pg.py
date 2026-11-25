@@ -242,3 +242,51 @@ def test_another_persons_session_keeps_the_nickname(env):
     hers["accounts"][0]["product"] = "BRUKSKONTO TILLEGG"
     run(sync.register_session(conn, eb, "S9", hers, label="Kari"))
     assert run(conn.fetchval("SELECT account FROM report.accounts")) == "Felles"
+
+
+class ClosingConn:
+    """A connection that closes once the first page has been fetched, as
+    the database restarting under the sync does."""
+
+    def __init__(self, conn):
+        self.conn, self.closed = conn, False
+
+    def __getattr__(self, name):
+        method = getattr(self.conn, name)
+
+        async def call(*args, **kwargs):
+            if self.closed:
+                raise InterfaceError("connection is closed")
+            if name == "fetchval" and "INSERT INTO raw_record" in (args[0] if args else ""):
+                self.closed = True
+                raise InterfaceError("connection is closed")
+            return await method(*args, **kwargs)
+        return call
+
+
+class InterfaceError(Exception):
+    """Named like asyncpg's."""
+
+
+def test_losing_the_database_mid_sync_leaves_it_for_a_retry(env):
+    conn, eb, bank, alerts = env
+    consent_id = run(sync.register_session(conn, eb, "S1"))
+    consent = run(conn.fetchrow("SELECT * FROM consent WHERE id = $1", consent_id))
+    closing = ClosingConn(conn)
+    with pytest.raises(InterfaceError):
+        run(sync.sync_consent(closing, eb, consent))
+    # Nothing could be written: the consent keeps its old sync time and the
+    # batch stays open, so the worker sees the run as missed
+    from datetime import datetime, timezone
+    assert run(sync.sync_missed(conn, datetime.now(timezone.utc)))
+    open_batches = run(conn.fetchval("SELECT count(*) FROM import_batch WHERE finished_at IS NULL"))
+    assert open_batches == 1
+    # The next worker start closes it as interrupted
+    assert run(sync.mark_interrupted(conn)) == 1
+    error = run(conn.fetchval("SELECT error FROM import_batch WHERE kind = 'nightly'"))
+    assert error.startswith("interrupted")
+    # And the retried sync completes
+    again = run(sync.sync_consent(conn, eb, consent))
+    assert again["errors"] == [] and again["accounts"] == 2
+    assert not run(sync.sync_missed(conn, datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    assert alerts == []

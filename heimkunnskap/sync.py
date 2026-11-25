@@ -1,6 +1,8 @@
 """Fetch from Enable Banking into the ledger.
 
-The worker runs this once a night at SYNC_AT. The web app runs a full
+The worker runs this once a night at SYNC_AT, tries again if the database
+goes away mid-run, and catches up at start if that night's run did not
+finish (a reboot during it, say). The web app runs a full
 import right after BankID, while history older than 90 days is still
 readable (about an hour).
 
@@ -52,6 +54,32 @@ def next_run(now: datetime, at: str) -> datetime:
         candidate = datetime.combine(now.date() + timedelta(days=1), dtime(hh, mm),
                                      tzinfo=now.tzinfo)
     return candidate
+
+
+def last_run(now: datetime, at: str) -> datetime:
+    """The latest local time at HH:MM at or before now."""
+    hh, mm = (int(x) for x in at.split(":"))
+    candidate = datetime.combine(now.date(), dtime(hh, mm), tzinfo=now.tzinfo)
+    if candidate > now:
+        candidate = datetime.combine(now.date() - timedelta(days=1), dtime(hh, mm),
+                                     tzinfo=now.tzinfo)
+    return candidate
+
+
+CONNECTION_LOST = {"InterfaceError", "ConnectionDoesNotExistError", "PostgresConnectionError",
+                   "ConnectionFailureError", "CannotConnectNowError", "AdminShutdownError",
+                   "CrashShutdownError", "ConnectionResetError", "ConnectionRefusedError",
+                   "BrokenPipeError"}
+
+
+def connection_lost(exc: BaseException) -> bool:
+    """Whether the database went away (a restart, a crash, the connection
+    closed), rather than something wrong with the data or the bank."""
+    return any(c.__name__ in CONNECTION_LOST for c in type(exc).__mro__)
+
+
+RETRY_ATTEMPTS = 3
+RETRY_WAIT = 300               # seconds between attempts after losing the database
 
 
 def seconds_until(when: datetime, now: datetime) -> float:
@@ -190,8 +218,9 @@ async def sync_account(conn, eb: EnableBanking, account, consent_id: int, *, ful
         await db.finish_batch(conn, batch, pages=pages, seen=seen, added=added)
         return seen, added
     except Exception as exc:
-        await db.finish_batch(conn, batch, pages=pages, seen=seen, added=added,
-                              error=str(exc)[:500])
+        if not connection_lost(exc):
+            await db.finish_batch(conn, batch, pages=pages, seen=seen, added=added,
+                                  error=str(exc)[:500])
         raise
 
 
@@ -233,7 +262,12 @@ async def sync_consent(conn, eb: EnableBanking, consent, *, full: bool = False,
                               error="; ".join(summary["errors"])[:500] or None)
         return summary
     finally:
-        await conn.execute("SELECT pg_advisory_unlock($1, $2)", LOCK_BASE, consent["id"])
+        try:
+            await conn.execute("SELECT pg_advisory_unlock($1, $2)", LOCK_BASE, consent["id"])
+        except Exception as exc:
+            if not connection_lost(exc):
+                raise
+            # A closed connection has released its locks already
 
 
 async def check_expiry(conn, now: datetime | None = None) -> None:
@@ -287,6 +321,8 @@ async def sync_all(*, full: bool = False) -> list[dict]:
             try:
                 results.append(await sync_consent(conn, eb, consent, full=full))
             except Exception as exc:
+                if connection_lost(exc):
+                    raise                         # the worker retries the whole run
                 log.exception("consent %s failed", consent["id"])
                 await db.mark_consent(conn, consent["id"], error=f"{type(exc).__name__}: {exc}"[:500])
                 notify.send(f"{consent_title(consent)}: sync failed", type(exc).__name__)
@@ -310,13 +346,63 @@ async def sync_all(*, full: bool = False) -> list[dict]:
         await conn.close()
 
 
+INTERRUPTED = ("interrupted: the worker stopped or lost the database before this finished "
+               "(it is fetched again on the next run)")
+
+
+async def mark_interrupted(conn) -> int:
+    """Close the batches a stopped worker left open. Nightly batches come
+    only from the worker, so at its start any open one was interrupted;
+    other kinds only once they are clearly abandoned."""
+    rows = await conn.fetch(
+        """UPDATE import_batch SET finished_at = now(), error = $1
+           WHERE finished_at IS NULL
+             AND (kind = 'nightly' OR started_at < now() - interval '2 hours')
+           RETURNING id""", INTERRUPTED)
+    return len(rows)
+
+
+async def sync_missed(conn, due: datetime) -> bool:
+    """Whether an active consent has not synced since the last scheduled run."""
+    return bool(await conn.fetchval(
+        """SELECT count(*) FROM consent
+           WHERE status = 'active' AND (last_sync_at IS NULL OR last_sync_at < $1)""", due))
+
+
+async def nightly(sync=None, attempts: int = RETRY_ATTEMPTS, wait: float = RETRY_WAIT) -> bool:
+    """The nightly sync, tried again a few minutes later if the database
+    went away (a restart, say). True when a run completed."""
+    sync = sync or sync_all
+    for attempt in range(1, attempts + 1):
+        try:
+            await sync()
+            return True
+        except Exception as exc:
+            if connection_lost(exc) and attempt < attempts:
+                log.warning("nightly sync lost the database (%s); trying again in %d s",
+                            type(exc).__name__, wait)
+                await asyncio.sleep(wait)
+                continue
+            log.exception("nightly sync failed")
+            notify.send("nightly sync failed",
+                        f"{type(exc).__name__}" + (f" after {attempt} attempts" if attempt > 1 else ""))
+            return False
+    return False
+
+
 async def worker() -> None:
     await migrate.run()
+    tz = ZoneInfo(settings.timezone)
     conn = await db.connect()
     try:
+        closed = await mark_interrupted(conn)
+        if closed:
+            log.warning("marked %d interrupted import batch(es)", closed)
+        missed = await sync_missed(conn, last_run(datetime.now(tz), settings.sync_at))
         await pairing.run(conn)        # classify at once after an upgrade
     except Exception:
-        log.exception("pairing failed")
+        log.exception("start-up checks failed")
+        missed = False
     finally:
         await conn.close()
     from . import business, mailin, trumf
@@ -326,16 +412,16 @@ async def worker() -> None:
         mail_task = asyncio.create_task(mailin.loop())     # noqa: F841  (runs for good)
     else:
         log.info("mail intake off: MAIL_USER or MAIL_ALLOWED_SENDERS not set")
-    tz = ZoneInfo(settings.timezone)
     log.info("worker started; nightly sync at %s %s", settings.sync_at, settings.timezone)
+    if missed:
+        # Started after the scheduled time without that run having finished
+        # (a restart during the sync, or the server off at night): run now
+        log.info("last night's sync did not finish; running it now")
+        await nightly()
     while True:
         wake = next_run(datetime.now(tz), settings.sync_at)
         await asyncio.sleep(max(1.0, seconds_until(wake, datetime.now(tz))))
-        try:
-            await sync_all()
-        except Exception as exc:
-            log.exception("nightly sync failed")
-            notify.send("nightly sync failed", type(exc).__name__)
+        await nightly()
 
 
 async def add_session(session_id: str, full: bool) -> None:

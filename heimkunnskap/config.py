@@ -51,7 +51,7 @@ class Settings:
     # Sync: once a night at SYNC_AT local time. A full import (right after
     # BankID) reaches FULL_HISTORY_DAYS back; a nightly one starts
     # OVERLAP_DAYS before the newest booked transaction already stored.
-    sync_at: str = os.environ.get("SYNC_AT", "02:30")
+    sync_at: str = os.environ.get("SYNC_AT", "03:15")
     full_history_days: int = _int("FULL_HISTORY_DAYS", 1825)
     first_sync_days: int = _int("FIRST_SYNC_DAYS", 89)
     overlap_days: int = _int("OVERLAP_DAYS", 10)

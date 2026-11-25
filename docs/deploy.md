@@ -97,7 +97,7 @@ The worker log should show both migrations applied, then:
 ```
 read-only grants ensured for heimkunnskap_ro
 MCP login may read: accounts, monthly, balances, consents, imports
-worker started; nightly sync at 02:30 Europe/Oslo
+worker started; nightly sync at 03:15 Europe/Oslo
 ```
 
 Check the web app locally:
@@ -172,7 +172,7 @@ That tells which banks give stable references. The fingerprint check covers bank
 
 ## 7. Nightly sync
 
-The worker syncs every active consent at `SYNC_AT` (02:30 Oslo time by default), before a typical nightly backup. Each night it reads transactions from ten days before the newest stored booking, and one balance per account. That is two requests per account, within the bank's limit of about four unattended requests a day.
+The worker syncs every active consent at `SYNC_AT` (03:15 Oslo time by default), before a typical nightly backup. Keep `SYNC_AT` clear of the server's own maintenance: if unattended-upgrades may reboot it (`Unattended-Upgrade::Automatic-Reboot-Time` in `/etc/apt/apt.conf.d/50unattended-upgrades`), pick a time well after. A sync that loses the database is tried again twice, five minutes apart, and a worker that starts after `SYNC_AT` without that night's sync finished runs it at once. Each night it reads transactions from ten days before the newest stored booking, and one balance per account. That is two requests per account, within the bank's limit of about four unattended requests a day.
 
 Alerts go to Pushover:
 

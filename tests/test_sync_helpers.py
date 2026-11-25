@@ -43,3 +43,60 @@ def test_card_file_due():
     assert card_file_due(date(2026, 11, 5), None, today)              # 45 days
     assert not card_file_due(date(2026, 11, 5), date(2026, 12, 15), today)
     assert card_file_due(date(2026, 11, 5), date(2026, 12, 13), today)
+
+
+def test_last_run():
+    from heimkunnskap.sync import last_run
+    oslo = ZoneInfo("Europe/Oslo")
+    assert last_run(datetime(2026, 11, 25, 2, 31, tzinfo=oslo), "02:30") == \
+        datetime(2026, 11, 25, 2, 30, tzinfo=oslo)
+    assert last_run(datetime(2026, 11, 25, 2, 29, tzinfo=oslo), "02:30") == \
+        datetime(2026, 11, 24, 2, 30, tzinfo=oslo)
+
+
+class InterfaceError(Exception):
+    """Named like asyncpg's: the connection is closed."""
+
+
+class ConnectionDoesNotExistError(InterfaceError):
+    pass
+
+
+def test_connection_lost_by_class_name():
+    from heimkunnskap.sync import connection_lost
+    assert connection_lost(InterfaceError("connection is closed"))
+    assert connection_lost(ConnectionDoesNotExistError())             # a subclass
+    assert connection_lost(ConnectionResetError())
+    assert not connection_lost(ValueError("bad data"))
+
+
+def test_nightly_tries_again_after_losing_the_database(monkeypatch):
+    import asyncio
+    from heimkunnskap import notify, sync
+    alerts = []
+    monkeypatch.setattr(notify, "send", lambda title, body="", priority=0: alerts.append((title, body)))
+    calls = []
+
+    async def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise InterfaceError("connection is closed")
+
+    assert asyncio.run(sync.nightly(flaky, attempts=3, wait=0)) is True
+    assert len(calls) == 3 and alerts == []                           # recovered: no alert
+
+    async def gone():
+        raise InterfaceError("connection is closed")
+
+    assert asyncio.run(sync.nightly(gone, attempts=2, wait=0)) is False
+    assert alerts == [("nightly sync failed", "InterfaceError after 2 attempts")]
+
+    calls.clear()
+
+    async def broken():
+        calls.append(1)
+        raise ValueError("bad data")                                  # not retried
+
+    alerts.clear()
+    assert asyncio.run(sync.nightly(broken, attempts=3, wait=0)) is False
+    assert len(calls) == 1 and alerts == [("nightly sync failed", "ValueError")]
