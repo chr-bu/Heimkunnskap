@@ -50,6 +50,11 @@ class BankProfile:
     # hides an account type from PSD2 (DNB's credit-line mortgage) can name
     # a loan rule instead.
     unpaired_own_transfer: str | None = None
+    # Own moves that are saving when their other side is not found, checked
+    # before unpaired_own_transfer: a move to or from an account PSD2 does
+    # not show that holds savings (DNB's share savings account, ASK). A
+    # debit is money put away, a credit money taken back out.
+    unpaired_saving: Rules = ()
     # Card bills paid from this bank: card brand (as in pairing.CARDS) to
     # the regex for the bill's text
     card_bills: tuple[tuple[str, re.Pattern], ...] = ()

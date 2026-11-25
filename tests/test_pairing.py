@@ -192,3 +192,30 @@ def test_funds_bought_and_sold_are_saving():
         assert out[t["id"]] == ("saving", None, "saving:sold")
     assert dividend["id"] not in out
     assert out[to_ask["id"]] == ("own_transfer", on_ask["id"], "own:paired")
+
+
+def test_ask_cash_account_hidden_from_psd2_is_saving_not_the_mortgage():
+    standing = tx(1, 15, -1000, "Kontoregulering, Spareavtale Til Aksjesparekonto")
+    one_off = tx(1, 16, -25000, "Overføring Innland, Internoverføring Til Aksjesparekont")
+    back = tx(1, 17, 5000, "Overføring Innland, Internoverføring Fra Aksjesparekont")
+    to_mortgage = tx(1, 18, -30000, OWN)                 # still the rammelån
+    out = classify([standing, one_off, back, to_mortgage], ACCOUNTS)
+    for t in (standing, one_off, back):
+        assert out[t["id"]] == ("saving", None, "saving:ask")
+    assert out[to_mortgage["id"]] == ("loan", None, "loan:credit_line_transfer")
+
+
+def test_funds_are_recognised_by_their_name_words_not_a_list():
+    bought = tx(1, 2, -500, "Giro, Eksempel Teknologi A, Fast Oppdrag")
+    sold = tx(1, 3, 12000, "Eksempel Teknologi A Overføring Innland, Eksempel Teknologi A")
+    money_market = tx(1, 4, 8000, "Eksempel Høyrente N Overføring Innland, Eksempel Høyrente N")
+    car_sold = tx(1, 5, 150000, "Eksempelbil As Overføring Innland, Eksempelbil As")
+    from_person = tx(1, 6, 900, "Fondevik Ola Overføring Innland, Fondevik Ola")
+    supplier = tx(1, 7, -1500, "Giro, Fondevik Bygg As, Fast Oppdrag")
+    fee = tx(1, 8, -10, "Omkostninger, Plattformhonorar Fond - Første K")
+    out = classify([bought, sold, money_market, car_sold, from_person, supplier, fee], ACCOUNTS)
+    assert out[bought["id"]] == ("saving", None, "saving:fund")
+    assert out[sold["id"]] == ("saving", None, "saving:sold")
+    assert out[money_market["id"]] == ("saving", None, "saving:sold")
+    for t in (car_sold, from_person, supplier, fee):
+        assert t["id"] not in out

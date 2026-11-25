@@ -181,10 +181,15 @@ def classify(txns: list[dict], accounts: dict[int, dict]) -> dict[int, tuple]:
             out[p["id"]] = ("own_transfer", t["id"], "own:paired")
     for t in own:
         if t["id"] not in out:
-            # The other side is in an account the bank does not share. For
-            # DNB that is the credit-line mortgage (the profile says so).
-            rule = bank(t).unpaired_own_transfer
-            out[t["id"]] = ((rule.split(":")[0], None, rule) if rule
+            # The other side is in an account the bank does not share: a
+            # savings account the profile names (DNB's ASK), else what the
+            # profile says (for DNB the credit-line mortgage).
+            p = bank(t)
+            text = t["description"] or ""
+            saving = next((r for r, pattern in p.unpaired_saving if pattern.search(text)), None)
+            rule = p.unpaired_own_transfer
+            out[t["id"]] = (("saving", None, saving) if saving
+                            else (rule.split(":")[0], None, rule) if rule
                             else ("own_transfer", None, "own:unpaired"))
 
     # 2. Card bills, paid from a bank account

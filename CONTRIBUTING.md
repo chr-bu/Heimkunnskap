@@ -29,6 +29,7 @@ The database tests are skipped unless `HEIM_TEST_PG` names an empty Postgres 17 
    - `card_bills` names a card brand from `CARDS` in `heimkunnskap/pairing.py`. A new card brand goes there too, with how to recognise its account.
    - If the bank's loan instalment text carries the split into principal, interest and fees, write a `loan_split` for it; otherwise leave the default (all principal).
    - `unpaired_own_transfer` is for a bank that hides an account type from PSD2 (DNB's credit-line mortgage). Most banks leave it out.
+   - `unpaired_saving` names own moves that are saving when their other side is hidden from PSD2 (DNB's share savings account, ASK). It is checked before `unpaired_own_transfer`.
 4. **Test it.** Add tests with made-up transactions in the bank's wording, like `tests/test_banks.py`: at least a move between own accounts, each card bill, a loan instalment (with its split, if any) and a fund purchase.
 5. **Describe it.** `docs/formats/<bank>.md`: the wording, as a table like `docs/formats/dnb.md`. Wording only, never anyone's transactions.
 
