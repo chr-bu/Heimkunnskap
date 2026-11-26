@@ -107,6 +107,7 @@ Only booked transactions are imported. Pending ones change reference and amount 
 - **A point is a point.** Points are not given a krone value. Reports count points and kroner side by side.
 - **Reconciliation.** Expected points per card and posting month are compared with the points in the EuroBonus history.
 - **Best card.** Each purchase is compared with what the best card would have earned. A card that is not accepted everywhere (American Express) counts only at merchants where it has been used.
+- **Progress.** Level points in the qualification period against Silver and Gold; each card's calendar-year spending against its milestones (dated rows: level points from DNB, 2-for-1 vouchers from Amex); points earned per month by source. Drawn on the server as SVG, since the web app allows no scripts.
 - **Award refunds.** A changed or cancelled award booking comes back from SAS as a refund of the same points. Each refund is paired with its booking and both are left out, so award spending is not inflated by rebookings.
 
 ## Income tax estimate

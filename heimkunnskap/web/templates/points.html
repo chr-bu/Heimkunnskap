@@ -10,6 +10,45 @@
     Each export repeats the whole history: only new rows are added.</p>
 </section>
 {% else %}
+{% set lv = charts.level %}
+<section class="card" id="levels">
+  <h2>Level points, {{ lv.start.strftime('%d.%m.%Y') }} – {{ lv.end.strftime('%d.%m.%Y') }}</h2>
+  <p class="viz-figures"><strong>{{ lv.total|kr0 }}</strong> level points.
+    {% for m in lv.milestones %}{{ m.reward }} ({{ m.value|kr0 }}):
+      {% if m.reached %}reached {{ m.reached.strftime('%d.%m.%Y') }}{% else %}{{ (m.value - lv.total)|kr0 }} to go{% endif %}.
+    {% endfor %}
+    {% if lv.projected %}At this pace, {{ lv.projected|kr0 }} by {{ lv.end.strftime('%d.%m.%Y') }}.{% endif %}</p>
+  {{ lv.svg }}
+  {% if lv.sources %}<p class="muted">From {% for name, pts in lv.sources %}{{ name }} {{ pts|kr0 }}{{ ", " if not loop.last }}{% endfor %}.</p>{% endif %}
+  {% if not lv.month_set %}<p class="muted">The qualification period is taken to start in January.
+    Set the month you joined EuroBonus with <code>manual set eurobonus_qualification_month 2</code> (February, say).</p>{% endif %}
+</section>
+
+{% if charts.cards %}
+{% for g in charts.cards %}
+<section class="card" id="goal-{{ g.card.code }}">
+  <h2>{{ g.card.label }}, {{ g.start.year }}</h2>
+  <p class="viz-figures"><strong>{{ g.total|kr0 }} kr</strong> point-earning spend.
+    {% set next = g.milestones|rejectattr('reached')|first %}
+    {% if next %}Next: {{ next.reward }} at {{ next.value|kr0 }} kr, {{ (next.value - g.total)|kr0 }} kr to go.
+    {% else %}Every milestone reached.{% endif %}
+    {% if g.projected %}At this pace, {{ g.projected|kr0 }} kr by 31.12.{% endif %}</p>
+  {{ g.svg }}
+</section>
+{% endfor %}
+{% endif %}
+
+{% if charts.earned %}
+<section class="card" id="earned">
+  <h2>Points earned per month</h2>
+  {{ charts.earned.legend }}
+  {{ charts.earned.svg }}
+  <p class="muted">{{ charts.earned.months[0].strftime('%m/%Y') }}–{{ charts.earned.months[-1].strftime('%m/%Y') }}:
+    {% for name, pts in charts.earned.rows %}{{ name }} {{ pts|kr0 }}{{ ", " if not loop.last }}{% endfor %}.
+    Bonus points earned only: points refunded for changed award bookings are left out. Hover a column for its figures.</p>
+</section>
+{% endif %}
+
 <section class="card" id="sources">
   <h2>Points earned</h2>
   <table>

@@ -720,6 +720,27 @@ def test_eurobonus_export_and_points(web):
     report = run(manual.points_report(conn, 2026))
     assert "DNB Mastercard" in report and "Missed" in report and "Level points" in report
     assert "Award travel kept: 190 000 points on 1 bookings" in report
+    # Progress: card spending against its milestones, level points against Silver and Gold
+    from heimkunnskap import progress
+    today = date(2026, 11, 26)
+    dnb_goal = run(progress.card_progress(conn, "dnb", 2026, today))
+    assert dnb_goal["total"] == 21000                                   # the Vipps transfer earns nothing
+    assert [m["value"] for m in dnb_goal["milestones"]] == [100000, 200000, 500000]
+    assert not any(m["reached"] for m in dnb_goal["milestones"]) and dnb_goal["cap"] == 700000
+    amex_goal = run(progress.card_progress(conn, "amex", 2026, today))
+    assert amex_goal["total"] == 1000 and amex_goal["milestones"][0]["reward"] == "2-for-1 voucher"
+    assert run(progress.card_progress(conn, "sas", 2026, today)) is None   # no milestones
+    level = run(progress.level_progress(conn, today))
+    assert (level["start"], level["end"]) == (date(2026, 1, 1), date(2026, 12, 31))   # January if unset
+    assert level["total"] == 10570
+    assert level["sources"] == [("DNB Mastercard", 10000), ("SAS Mastercard", 500), ("Other", 70)]
+    assert "eurobonus_qualification_month = 2" in run(manual.set_value(conn, "eurobonus_qualification_month", "02"))
+    level = run(progress.level_progress(conn, today))
+    assert (level["start"], level["end"]) == (date(2026, 2, 1), date(2027, 1, 31))
+    assert [(m["reward"], m["reached"]) for m in level["milestones"]] == [("Silver", None), ("Gold", None)]
+    earned = run(progress.earned_monthly(conn, 24, today))
+    assert earned["stacks"]["trumf"][-1] == 2700 and earned["stacks"]["dnb"][-2:] == [1500, 1650]
+    assert "flights" not in earned["stacks"]                            # 2017: outside the 24 months
 
 
 def test_points_page(web):
@@ -732,6 +753,9 @@ def test_points_page(web):
     page = run(Client(app, client_ip="192.168.1.20").get("/points?year=2026"))
     assert page.status == 200 and "NorgesGruppen" in page.text and "Level points" in page.text
     assert "Award travel kept" in page.text and "Oslo - Bangkok" in page.text
+    assert 'id="levels"' in page.text and 'id="goal-dnb"' in page.text and 'id="earned"' in page.text
+    assert "2-for-1 voucher" in page.text and "Gold (45 000)" in page.text
+    assert page.text.count('<svg class="viz"') == 4                     # levels, DNB, Amex, per month
     flows = {r["partner"]: r["flow"] for r in run(conn.fetch("SELECT partner, flow FROM report.eurobonus"))}
     assert flows["Oslo - Bangkok"] == "award" and flows["DNB Rewards"] == "earned"
     assert flows["Level Points from DNB Rewards"] == "level"

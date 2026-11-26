@@ -19,6 +19,7 @@ import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs
 
 from starlette.applications import Starlette
@@ -32,8 +33,9 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from .. import __version__, categories, db, fileimport, notify, pairing, sync, tax
+from .. import __version__, categories, db, fileimport, notify, pairing, progress, sync, tax
 from ..config import settings
+from . import charts
 from .mcp import McpServer
 
 log = logging.getLogger("heimkunnskap.web")
@@ -265,6 +267,11 @@ class Web:
                    FROM report.points_purchases WHERE extract(year FROM booking_date) = $1
                      AND excluded IS NOT NULL GROUP BY 1 ORDER BY 3 DESC""", year)
             rules = await conn.fetch("SELECT * FROM earn_rule ORDER BY card, valid_from")
+            today = datetime.now(ZoneInfo(settings.timezone)).date()
+            level = await progress.level_progress(
+                conn, today, None if year == today.year else year)
+            card_goals = [(c, await progress.card_progress(conn, c["code"], year, today)) for c in cards]
+            earned = await progress.earned_monthly(conn, 24, today)
         by_card = {c["code"]: [m for m in monthly if m["card"] == c["code"]] for c in cards}
         totals = {code: {k: sum(m[k] for m in rows) for k in ("earning_spend", "expected", "received",
                                                                 "difference", "missed")}
@@ -275,7 +282,8 @@ class Web:
                            excluded=excluded, rules=rules,
                            labels={c["code"]: c["label"] for c in cards},
                            level_year=sum(s["level"] or 0 for s in sources),
-                           missed_total=sum(m["missed"] for m in missed))
+                           missed_total=sum(m["missed"] for m in missed),
+                           charts=_points_charts(level, card_goals, earned))
 
     async def trumf_page(self, request: Request) -> Response:
         try:
@@ -698,6 +706,30 @@ def fmt_kr(value) -> str:
         return ""
     s = f"{float(value):,.2f}".replace(",", " ").replace(".", ",")
     return s.replace("-", "−")
+
+
+def _points_charts(level: dict, card_goals: list, earned: dict) -> dict:
+    """The Points page's progress charts (web/charts.py)."""
+    order = progress.SOURCE_ORDER
+    out = {"level": dict(level, svg=charts.progress(
+               level["series"], level["start"], level["end"], level["today"], level["milestones"],
+               "points", level["projected"], label="Level points in the qualification period")),
+           "cards": [], "earned": None}
+    for card, goal in card_goals:
+        if goal:
+            out["cards"].append(dict(goal, card=card, svg=charts.progress(
+                goal["series"], goal["start"], goal["end"], goal["today"], goal["milestones"], "kr",
+                goal["projected"], goal["cap"], label=f"{card['label']}: spending this year")))
+    if earned["stacks"]:
+        present = [s for s in order if s in earned["stacks"]]
+        out["earned"] = {
+            "svg": charts.stacked_months(earned["months"], earned["stacks"], order,
+                                         label="EuroBonus points earned per month",
+                                         names=earned["labels"]),
+            "legend": charts.legend([(order.index(s) + 1, earned["labels"][s]) for s in present]),
+            "rows": [(earned["labels"][s], sum(earned["stacks"][s])) for s in present],
+            "months": earned["months"]}
+    return out
 
 
 def fmt_kr0(value) -> str:

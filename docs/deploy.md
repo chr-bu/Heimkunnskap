@@ -435,6 +435,14 @@ sudo docker compose exec worker python -m heimkunnskap.manual points-exclude 'vi
 
 The rules seeded by `sql/022_points.sql` are one household's cards in November 2026: American Express SAS EuroBonus 20 points per 100 kr, at home and abroad; DNB Mastercard with the SAGA Upgrade 15, and 20 in foreign currency, up to 700,000 kr of spending a calendar year; SAS EuroBonus Mastercard 15. Set your own cards' current terms with `earn-rule`. For that household, DNB's postings matched the rule within about 1% most months.
 
+**Progress charts.** The top of the Points page shows level points in the current qualification period against Silver (20 000) and Gold (45 000), each card's spending this calendar year against its milestones, and the points earned per month by source. Hover a chart for its figures. Tell it the month you joined EuroBonus, which starts your qualification period (January if unset):
+
+```sh
+sudo docker compose exec worker python -m heimkunnskap.manual set eurobonus_qualification_month 2
+```
+
+The milestones seeded by `sql/028_points_milestones.sql` are the November 2026 terms of two cards: DNB Mastercard Upgrade SAGA gives 10 000 level points at 100 000, 200 000 and 500 000 kr of point-earning spend in a calendar year; SAS Amex Elite gives a 2-for-1 voucher at 150 000 kr and a second at 300 000 kr. Other cards or changed terms: rows in `points_milestone` (card, `spend_minor` in øre, reward, level points, `valid_from`), with SQL for now.
+
 ## 15. Trumf purchases and receipts
 
 Optional, and unofficial. The worker reads trumf.no every morning at 07:10 with the household's own login: each purchase in NorgesGruppen stores and through Trumf Netthandel, and each receipt line (product, barcode, quantity, price, Trumf bonus and why). Trumf keeps 12 months; Heimkunnskap keeps everything from the first fetch on. There is no official API: if trumf.no changes its pages, the fetch stops and Pushover says so once.

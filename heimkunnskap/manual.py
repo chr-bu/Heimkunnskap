@@ -39,10 +39,12 @@ household made, and which were investments, so neither counts as spending.
   business-rule PATTERN [--share] [--vat-rate] [--note]
                         tag every payment whose payee or text matches
   business-rule-delete RULE
-  set KEY VALUE         a setting for the tax estimate: vat_registered_from
+  set KEY VALUE         a setting: vat_registered_from
                         (YYYY-MM-DD), loan_interest_person (a name),
                         loan_interest_share (0-1: that person's share of the
-                        household's loan interest; the rest is the spouse's)
+                        household's loan interest; the rest is the spouse's),
+                        eurobonus_qualification_month (1-12: the month you
+                        joined EuroBonus; the Points page's level progress)
   tax [YEAR]            the income tax estimate
   trumf-session         store the trumf.no login: paste the Cookie header
                         (it is not shown, and may be longer than a line)
@@ -481,7 +483,8 @@ async def points_exclude_delete(conn, eid: int) -> str:
     return f"exclusion {eid} deleted"
 
 
-SETTINGS = ("vat_registered_from", "loan_interest_person", "loan_interest_share")
+SETTINGS = ("vat_registered_from", "loan_interest_person", "loan_interest_share",
+            "eurobonus_qualification_month")
 
 
 async def set_vat(conn, txn_id: int, kr: float, note: str | None, term: str | None = None) -> str:
@@ -521,6 +524,11 @@ async def set_value(conn, key: str, value: str) -> str:
             ok = False
         if not ok:
             raise SystemExit("loan_interest_share: a number from 0 to 1, e.g. 0.5")
+    if key == "eurobonus_qualification_month":
+        if not (value.isdigit() and 1 <= int(value) <= 12):
+            raise SystemExit("eurobonus_qualification_month: the month you joined EuroBonus, 1-12")
+        await db.set_setting(conn, key, str(int(value)))
+        return f"{key} = {int(value)}"
     await db.set_setting(conn, key, value)
     from . import tax
     await tax.refresh(conn)
