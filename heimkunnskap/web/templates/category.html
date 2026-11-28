@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ category }} · Heimkunnskap{% endblock %}
+{% set MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
+                 "September", "October", "November", "December"] %}
+{% macro link(y=year, m=month, p=payee) -%}
+/category?name={{ category|urlencode }}&amp;year={{ y }}{% if m %}&amp;month={{ m }}{% endif %}{% if p %}&amp;payee={{ p|urlencode }}{% endif %}
+{%- endmacro %}
+{% block content %}
+<p class="muted"><a href="/categories?year={{ year }}">Categories</a> ›</p>
+<h1>{{ category }}, {% if month %}{{ MONTHS[month - 1] }} {% endif %}{{ year }}{% if payee %}: {{ payee }}{% endif %}</h1>
+
+<section class="card" id="summary">
+  <p class="viz-figures"><strong>{{ total|kr }} kr</strong> in {{ items|length }} payment{{ "s" if items|length != 1 }}.
+    {% if month or payee %}<a href="{{ link(m=None, p=None) }}">Show all of {{ year }}</a>.{% endif %}</p>
+  <table>
+    <tr><th>Month</th><th class="num">Spending</th><th class="num">Payments</th></tr>
+    {% for m, row in months %}
+    <tr{% if m == month %} class="strong"{% endif %}>
+      <td>{% if row %}<a href="{{ link(m=m) }}">{{ MONTHS[m - 1] }}</a>{% else %}{{ MONTHS[m - 1] }}{% endif %}</td>
+      <td class="num">{{ row.spending|kr if row else "" }}</td><td class="num">{{ row.n if row else "" }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted"><a href="{{ link(y=year - 1, m=None) }}">{{ year - 1 }}</a> ·
+    <a href="{{ link(y=year + 1, m=None) }}">{{ year + 1 }}</a></p>
+</section>
+
+{% if payees and not payee %}
+<section class="card" id="payees">
+  <h2>Largest payees{% if month %} in {{ MONTHS[month - 1] }}{% endif %}</h2>
+  <table>
+    <tr><th>Payee</th><th class="num">Spending</th><th class="num">Payments</th></tr>
+    {% for p in payees %}
+    <tr><td><a href="{{ link(p=p.payee) }}">{{ p.payee }}</a></td><td class="num">{{ p.spending|kr }}</td>
+        <td class="num">{{ p.n }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<section class="card" id="items">
+  <h2>Payments</h2>
+  {% if items %}
+  <table>
+    <tr><th>Date</th><th>Payee</th><th>Bank text</th><th>Account</th><th class="num">Amount</th><th>Rule</th></tr>
+    {% for i in items %}
+    <tr>
+      <td>{{ i.booking_date.strftime('%d.%m.%Y') }}</td>
+      <td>{% if not payee %}<a href="{{ link(p=i.payee) }}">{{ i.payee }}</a>{% else %}{{ i.payee }}{% endif %}</td>
+      <td class="muted">{{ i.description }}{% if i.reimbursed %} (the part paid back for an expense){% endif %}</td>
+      <td>{{ i.account }}{% if i.card_holder %}<br><span class="muted">{{ i.card_holder|title }}</span>{% endif %}</td>
+      <td class="num">{{ i.spending|kr }}{% if i.original_currency and i.original_currency != "NOK" %}<br>
+        <span class="muted">{{ i.original_amount|abs|kr }} {{ i.original_currency }}</span>{% endif %}</td>
+      <td>{% if i.pattern %}<code>{{ i.pattern|truncate(40) }}</code>{% elif i.reimbursed %}<span class="muted">expense claim</span>{% else %}<span class="muted">none</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if truncated %}<p class="muted">The first 2 000 payments; pick a month to see the rest.</p>{% endif %}
+  {% else %}
+  <p>No payments.</p>
+  {% endif %}
+  <p class="muted">Spending is positive; refunds and money paid back are negative. A payment's category
+    comes from the first rule that matches it (Categories, Rules); change the rule to move it.</p>
+</section>
+{% endblock %}

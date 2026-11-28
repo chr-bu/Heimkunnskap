@@ -218,6 +218,29 @@ def test_categories_page_and_rules(web):
                              "WHERE description = 'BETALING MOTTATT - TAKK'")) is None
     monthly = run(conn.fetch("SELECT category FROM report.category_monthly"))
     assert {"category": "Eating out"} in monthly
+    # Drilldown: the category links to its payments, by month and payee
+    assert '<a href="/category?name=Eating%20out&amp;year=2026">Eating out</a>' in after.text
+    txn = run(conn.fetchrow("SELECT booking_date, counterparty, description FROM report.transactions "
+                            "WHERE description LIKE 'TESTKAFE%' LIMIT 1"))
+    payee = txn["counterparty"] or txn["description"].split(",")[0]
+
+    async def drill():
+        c = Client(app, client_ip="192.168.1.20")
+        return (await c.get("/category?name=Eating+out&year=2026"),
+                await c.get(f"/category?name=Eating+out&year=2026&month={txn['booking_date'].month}"),
+                await c.get("/category?name=Eating+out&year=2026&payee=" + payee.replace(" ", "+")),
+                await c.get("/category?name=Eating+out&year=2026&month=" +
+                            str(txn["booking_date"].month % 12 + 1)),
+                await c.get("/category?name=Nothing+like+it&year=2026"),
+                await c.get("/category?name=Eating+out&year=x&month=13"))
+    whole, one_month, one_payee, empty_month, missing, bad = run(drill())
+    assert whole.status == 200 and "Eating out, 2026" in whole.text and "TESTKAFE" in whole.text
+    assert "testkafe" in whole.text                                     # the rule that placed it
+    assert "Largest payees" in whole.text and "&amp;payee=" in whole.text
+    assert one_month.status == 200 and "TESTKAFE" in one_month.text and "Show all of 2026" in one_month.text
+    assert one_payee.status == 200 and f": {payee}" in one_payee.text and "Largest payees" not in one_payee.text
+    assert empty_month.status == 200 and "No payments." in empty_month.text
+    assert missing.status == 404 and bad.status == 200
 
 
 def test_interest_netted_out_of_a_rammelan_payment(web):

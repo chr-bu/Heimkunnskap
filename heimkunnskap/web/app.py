@@ -18,7 +18,7 @@ import pathlib
 import re
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs
 
@@ -423,7 +423,67 @@ class Web:
         suggestions = [dict(o, pattern=re.escape(" ".join(str(o["payee"]).lower().split())[:60]))
                        for o in other]
         return self.render(request, "categories.html", year=year, totals=totals, total=total,
-                           rules=rules, names=names, other=suggestions)
+                           rules=rules, names=names, other=suggestions, other_name=categories.OTHER)
+
+    async def category_items(self, request: Request) -> Response:
+        """One category's payments: by month, by payee, and each item."""
+        q = request.query_params
+        name = (q.get("name") or "").strip()
+        try:
+            year = int(q.get("year") or datetime.now().year)
+            month = int(q["month"]) if q.get("month") else None
+        except ValueError:
+            year, month = datetime.now().year, None
+        if month is not None and not 1 <= month <= 12:
+            month = None
+        payee = (q.get("payee") or "").strip() or None
+        start = date(year, month or 1, 1)
+        end = (date(year + (month == 12), month % 12 + 1, 1) if month else date(year + 1, 1, 1)) \
+            - timedelta(days=1)
+        pool = await self.pool()
+        async with pool.acquire() as conn:
+            cid = await conn.fetchval("SELECT id FROM category WHERE name = $1", name)
+            if cid is None:
+                return PlainTextResponse("no such category", status_code=404)
+            # The same rows as the category totals: categorised payments, and the
+            # reimbursed parts of deposits (an expense paid back lowers its category)
+            items_sql = """
+                SELECT t.id, t.booking_date, coalesce(a.label, a.name, a.product, 'account ' || a.id)
+                           AS account, t.counterparty, t.description, t.card_holder,
+                       coalesce(t.counterparty, split_part(t.description, ',', 1)) AS payee,
+                       round(-t.amount_minor / 100.0, 2) AS spending, t.original_amount,
+                       t.original_currency, r.pattern, false AS reimbursed
+                FROM txn_category tc JOIN txn t ON t.id = tc.txn_id
+                JOIN account a ON a.id = t.account_id
+                LEFT JOIN category_rule r ON r.id = tc.rule_id
+                WHERE tc.category_id = $1 AND t.booking_date BETWEEN $2 AND $3
+                UNION ALL
+                SELECT t.id, t.booking_date, coalesce(a.label, a.name, a.product, 'account ' || a.id),
+                       t.counterparty, t.description, t.card_holder,
+                       coalesce(t.counterparty, split_part(t.description, ',', 1)),
+                       round(-p.amount_minor / 100.0, 2), NULL, NULL, NULL, true
+                FROM txn_part p JOIN txn t ON t.id = p.txn_id
+                JOIN account a ON a.id = t.account_id
+                LEFT JOIN txn_class c ON c.txn_id = t.id
+                WHERE p.kind = 'reimbursement' AND c.kind IS NULL AND p.category_id = $1
+                  AND t.booking_date BETWEEN $2 AND $3"""
+            year_start, year_end = date(year, 1, 1), date(year, 12, 31)
+            months = await conn.fetch(
+                f"""SELECT extract(month FROM booking_date)::int AS month, sum(spending) AS spending,
+                           count(*) AS n FROM ({items_sql}) i
+                    WHERE $4::text IS NULL OR payee = $4
+                    GROUP BY 1 ORDER BY 1""", cid, year_start, year_end, payee)
+            payees = await conn.fetch(
+                f"""SELECT payee, sum(spending) AS spending, count(*) AS n FROM ({items_sql}) i
+                    GROUP BY 1 ORDER BY 2 DESC LIMIT 15""", cid, start, end)
+            items = await conn.fetch(
+                f"""SELECT * FROM ({items_sql}) i WHERE $4::text IS NULL OR payee = $4
+                    ORDER BY booking_date DESC, id DESC LIMIT 2000""", cid, start, end, payee)
+        by_month = {m["month"]: m for m in months}
+        return self.render(request, "category.html", category=name, year=year, month=month,
+                           payee=payee, items=items, payees=payees,
+                           months=[(m, by_month.get(m)) for m in range(1, 13)],
+                           total=sum(i["spending"] for i in items), truncated=len(items) == 2000)
 
     async def category_rule_post(self, request: Request) -> Response:
         data = await self.form(request)
@@ -766,6 +826,7 @@ def create_app(secret: str | None = None, **kwargs) -> Starlette:
         Route("/eb/callback", web.eb_callback),
         Route("/upload", web.upload, methods=["GET", "POST"]),
         Route("/categories", web.categories_page),
+        Route("/category", web.category_items),
         Route("/tax", web.tax_page),
         Route("/points", web.points_page),
         Route("/groceries", web.trumf_page),

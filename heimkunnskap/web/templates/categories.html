@@ -7,7 +7,8 @@
   <table>
     <tr><th>Category</th><th class="num">Spending</th><th class="num">Share</th><th class="num">Transactions</th></tr>
     {% for t in totals %}
-    <tr><td>{{ t.category }}</td><td class="num">{{ t.spending|kr }}</td>
+    <tr><td><a href="/category?name={{ t.category|urlencode }}&amp;year={{ year }}">{{ t.category }}</a></td>
+        <td class="num">{{ t.spending|kr }}</td>
         <td class="num">{{ ((t.spending or 0) / total * 100)|round|int if total else 0 }} %</td>
         <td class="num">{{ t.n }}</td></tr>
     {% endfor %}
@@ -28,7 +29,8 @@
     <tr><th>Payee</th><th class="num">Payments</th><th class="num">Total</th><th>New rule</th></tr>
     {% for o in other %}
     <tr>
-      <td>{{ o.payee }}</td><td class="num">{{ o.n }}</td><td class="num">{{ o.spending|kr }}</td>
+      <td><a href="/category?name={{ other_name|urlencode }}&amp;year={{ year }}&amp;payee={{ o.payee|urlencode }}">{{ o.payee }}</a></td>
+      <td class="num">{{ o.n }}</td><td class="num">{{ o.spending|kr }}</td>
       <td>
         <form class="inline" method="post" action="/categories/rules">
           <input type="hidden" name="csrf" value="{{ csrf }}">
